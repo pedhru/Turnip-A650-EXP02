@@ -26,6 +26,5 @@ jobs:
         with:
           name: mesa-source-audit
           path: |
-            mesa-revision.txt
-            vulkan14-references.txt
+            .github/workflows/source-audit.yml.
           if-no-files-found: warn
