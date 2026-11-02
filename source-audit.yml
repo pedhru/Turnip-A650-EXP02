@@ -1,0 +1,31 @@
+name: Mesa source audit
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v4
+      - name: Fetch pinned Mesa source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout https://gitlab.freedesktop.org/mesa/mesa.git mesa
+          git -C mesa checkout 1558388535b109e4e77919fc2a6ba11fc7f058f2
+          git -C mesa rev-parse HEAD | tee mesa-revision.txt
+          git -C mesa status --short
+          grep -R -n -m 3 'VK_API_VERSION_1_4' mesa/src/freedreno/vulkan/ > vulkan14-references.txt || true
+          test -f vulkan14-references.txt
+      - name: Upload audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mesa-source-audit
+          path: |
+            mesa-revision.txt
+            vulkan14-references.txt
+          if-no-files-found: warn
