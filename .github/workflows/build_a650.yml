@@ -1,0 +1,107 @@
+name: Turnip A650 EXP12 - Android KGSL verified
+
+on:
+  workflow_dispatch:
+    inputs:
+      mesa_ref:
+        description: 'Mesa branch, tag or commit SHA (main = latest at build time)'
+        type: string
+        default: 'main'
+      profile:
+        description: 'Baseline recommended. EXP02 is historical/experimental and may not apply.'
+        type: choice
+        options:
+          - baseline
+          - exp02
+        default: baseline
+      vulkan_beta:
+        description: 'Enable beta Vulkan extensions (not a Vulkan 1.4 guarantee)'
+        type: boolean
+        default: false
+      ndk:
+        description: 'NDK release'
+        type: choice
+        options:
+          - r28c
+          - r27c
+        default: r28c
+
+permissions:
+  contents: read
+
+concurrency:
+  group: turnip-a650-${{ github.ref }}-${{ inputs.profile }}
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    name: Check tooling and input files
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate shell and Python sources
+        run: |
+          bash -n build_turnip.sh
+          bash -n patches/common/apply_common.sh
+          python3 -m compileall -q tools tests
+          python3 -m unittest discover -s tests -v
+          test -s mesa-exp02.patch
+
+  build:
+    name: Build ARM64 Turnip for Adreno 650
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git curl unzip zip flex bison ninja-build glslang-tools \
+            pkg-config build-essential libexpat1-dev libelf-dev python3-venv python3-pip
+          python3 -m venv "$RUNNER_TEMP/mesa-python"
+          "$RUNNER_TEMP/mesa-python/bin/pip" install --upgrade pip
+          "$RUNNER_TEMP/mesa-python/bin/pip" install 'meson>=1.4,<2' mako packaging pyyaml
+          echo "$RUNNER_TEMP/mesa-python/bin" >> "$GITHUB_PATH"
+      - name: Cache official Android NDK
+        uses: actions/cache@v4
+        with:
+          path: .work/android-ndk-${{ inputs.ndk || 'r28c' }}
+          key: turnip-a650-ndk-${{ runner.os }}-${{ inputs.ndk || 'r28c' }}-v1
+      - name: Compile and validate Turnip ADPKG
+        id: build
+        env:
+          MESA_REF: ${{ inputs.mesa_ref || 'main' }}
+          PATCH_PROFILE: ${{ inputs.profile || 'baseline' }}
+          VULKAN_BETA: ${{ inputs.vulkan_beta && 'true' || 'false' }}
+          NDK_VERSION: ${{ inputs.ndk || 'r28c' }}
+          ANDROID_API: '33'
+          VARIANT_NAME: Turnip-A650-EXP12
+          BUILD_VERSION: ${{ github.run_number }}
+          JOBS: '2'
+        run: bash build_turnip.sh
+      - name: Publish build summary
+        if: success()
+        env:
+          DRIVER_NAME: ${{ steps.build.outputs.driver_name }}
+          MESA_SHA: ${{ steps.build.outputs.mesa_sha }}
+        run: |
+          {
+            echo '### Turnip A650 EXP12: static build passed'
+            echo "- ZIP: \`$DRIVER_NAME\`"
+            echo "- Mesa source commit: \`$MESA_SHA\`"
+            echo '- Hardware compatibility/FPS/Vulkan version: **not tested on device**'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload driver, checksum and provenance
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Turnip-A650-EXP12-${{ inputs.profile || 'baseline' }}
+          path: |
+            dist/*.zip
+            dist/*.sha256
+            dist/*.build.json
+          if-no-files-found: error
+          compression-level: 0

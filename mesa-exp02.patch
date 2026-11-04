@@ -1,0 +1,128 @@
+--- a/src/freedreno/vulkan/tu_knl_kgsl.cc
++++ b/src/freedreno/vulkan/tu_knl_kgsl.cc
+@@ -1503,6 +1503,82 @@
+                           struct kgsl_gpu_aux_command_bind, bind) {
+       bind->rangeslist += static_cast<uint64_t>(reinterpret_cast<uintptr_t>(submit->ranges.data));
+    }
++}
++
++/* Keep the stack bounded and retain the merge path for large submissions.
++ * KGSL consumes the pointed-to payloads during the submission ioctl, so the
++ * FD syncpoints borrow their descriptors; they must not be closed here.
++ */
++#define KGSL_NATIVE_SYNCPOINT_LIMIT 16
++
++static bool
++kgsl_build_native_syncpoints(const struct kgsl_syncobj *const *syncobjs,
++                             uint32_t count,
++                             struct kgsl_command_syncpoint *points,
++                             struct kgsl_cmd_syncpoint_timestamp *timestamps,
++                             struct kgsl_cmd_syncpoint_fence *fences,
++                             uint32_t *point_count)
++{
++   *point_count = 0;
++   if (count > KGSL_NATIVE_SYNCPOINT_LIMIT)
++      return false;
++
++   for (uint32_t i = 0; i < count; i++) {
++      const struct kgsl_syncobj *s = syncobjs[i];
++      uint32_t n = *point_count;
++      switch (s->state) {
++      case KGSL_SYNCOBJ_STATE_SIGNALED:
++         continue;
++      case KGSL_SYNCOBJ_STATE_TS: {
++         bool merged = false;
++         for (uint32_t j = 0; j < n; j++) {
++            if (points[j].type == KGSL_CMD_SYNCPOINT_TYPE_TIMESTAMP &&
++                timestamps[j].context_id == s->queue->msm_queue_id) {
++               timestamps[j].timestamp = max_ts(timestamps[j].timestamp, s->timestamp);
++               merged = true;
++               break;
++            }
++         }
++         if (merged)
++            continue;
++         timestamps[n] = (struct kgsl_cmd_syncpoint_timestamp) {
++            .context_id = s->queue->msm_queue_id,
++            .timestamp = s->timestamp,
++         };
++         points[n] = (struct kgsl_command_syncpoint) {
++            .priv = reinterpret_cast<uintptr_t>(&timestamps[n]),
++            .size = sizeof(timestamps[n]),
++            .type = KGSL_CMD_SYNCPOINT_TYPE_TIMESTAMP,
++         };
++         break;
++      }
++      case KGSL_SYNCOBJ_STATE_FD: {
++         bool duplicate = false;
++         for (uint32_t j = 0; j < n; j++) {
++            if (points[j].type == KGSL_CMD_SYNCPOINT_TYPE_FENCE &&
++                fences[j].fd == s->fd) {
++               duplicate = true;
++               break;
++            }
++         }
++         if (duplicate)
++            continue;
++         fences[n] = (struct kgsl_cmd_syncpoint_fence) { .fd = s->fd };
++         points[n] = (struct kgsl_command_syncpoint) {
++            .priv = reinterpret_cast<uintptr_t>(&fences[n]),
++            .size = sizeof(fences[n]),
++            .type = KGSL_CMD_SYNCPOINT_TYPE_FENCE,
++         };
++         break;
++      }
++      default:
++         /* Pending waits must be handled by the existing merge path. */
++         *point_count = 0;
++         return false;
++      }
++      ++*point_count;
++   }
++   return true;
+ }
+ 
+ static VkResult
+@@ -1600,10 +1676,21 @@
+       wait_semaphores[i] = &container_of(waits[i].sync, struct vk_kgsl_syncobj, vk)->syncobj;
+    }
+ 
++   struct kgsl_command_syncpoint native_points[KGSL_NATIVE_SYNCPOINT_LIMIT];
++   struct kgsl_cmd_syncpoint_timestamp native_ts[KGSL_NATIVE_SYNCPOINT_LIMIT];
++   struct kgsl_cmd_syncpoint_fence native_fds[KGSL_NATIVE_SYNCPOINT_LIMIT];
++   uint32_t native_count = 0;
++   const bool native_waits = submit->bind_cmds.size == 0 &&
++      kgsl_build_native_syncpoints(wait_semaphores, wait_count, native_points,
++                                    native_ts, native_fds, &native_count);
++
+    struct kgsl_syncobj wait_sync;
+-   result = kgsl_syncobj_merge(queue->device, wait_semaphores, wait_count, &wait_sync);
+-   if (result != VK_SUCCESS)
+-      return result;
++   kgsl_syncobj_init(&wait_sync, true);
++   if (!native_waits) {
++      result = kgsl_syncobj_merge(queue->device, wait_semaphores, wait_count, &wait_sync);
++      if (result != VK_SUCCESS)
++         return result;
++   }
+    assert(wait_sync.state != KGSL_SYNCOBJ_STATE_UNSIGNALED); // Would wait forever
+ 
+    if (u_trace_submission_data) {
+@@ -1678,9 +1765,10 @@
+          .cmdsize = sizeof(struct kgsl_command_object),
+          .numcmds = util_dynarray_num_elements(&submit->commands,
+                                                struct kgsl_command_object),
+-         .synclist = reinterpret_cast<uintptr_t>(&sync),
++         .synclist = native_waits ? reinterpret_cast<uintptr_t>(native_points)
++                                  : reinterpret_cast<uintptr_t>(&sync),
+          .syncsize = sizeof(sync),
+-         .numsyncs = has_sync != 0 ? 1 : 0,
++         .numsyncs = native_waits ? native_count : (has_sync ? 1 : 0),
+          .context_id = queue->msm_queue_id,
+       };
+ 
+--- a/VERSION
++++ b/VERSION
+@@ -1 +1 @@
+-27.0.0-devel
++27.0.0-devel-EXP02-A650-SYNC
