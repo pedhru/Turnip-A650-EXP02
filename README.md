@@ -1,9 +1,17 @@
-# Turnip A650 EXP12 | Mesa/Android KGSL AutoBuilder
+# Turnip A650 EXP13 | Mesa/Android KGSL AutoBuilder
 
 Este arquivo contém **código para compilar** um driver Turnip, NÃO uma biblioteca `.so` pronta.
 O pacote é voltado ao **Motorola Edge 20 Pro, Adreno 650, Android 13 (API 33), ARM64**.
 
-## O que foi melhorado em relação ao EXP11
+## Auditoria EXP12 → EXP13 (após log real do GitHub Actions)
+
+- **Causa raiz corrigida**: `meson setup "$build" "$MESA_DIR"` agora informa explicitamente o diretório fonte (antes só passava `$build`).
+- `compile_driver()` verifica a existência de `meson.build` e `VERSION` antes de configurar.
+- **3 testes de integração Bash** executam a função real com um Meson simulado, cobrindo caminho fonte, falha antecipada e carregamento sem efeitos colaterais.
+- O checkout e a verificação de patches agora vêm **antes** do download do NDK, reduzindo desperdício quando a fonte ou o patch falham.
+- Pacote de driver continua exigindo validação ELF/ZIP/dependências; compilação física e testes de GPU permanecem pendentes.
+
+## Recursos preservados do EXP12
 
 - Usa o **repositório oficial do Mesa** (`gitlab.freedesktop.org/mesa/mesa.git`). O commit exato aparece no nome do ZIP e no `*.build.json`; `mesa_ref` também aceita SHA fixo para repetir uma compilação.
 - **Dois perfis seguros e explícitos**: `baseline` (recomendado, código do upstream, sem patches) e `exp02` (aplica `mesa-exp02.patch` **apenas** se `git apply --check` aprovar). Nada é ignorado silenciosamente.
@@ -18,11 +26,11 @@ O pacote é voltado ao **Motorola Edge 20 Pro, Adreno 650, Android 13 (API 33), 
 ## Como usar pelo GitHub (recomendado)
 
 1. Coloque o conteúdo inteiro deste ZIP na raiz do repositório GitHub. Preserve a pasta `.github/workflows/`.
-2. Faça commit na branch principal. Como alternativa, usando Git em um PC: `git add . && git commit -m 'Turnip A650 EXP12' && git push`.
-3. Abra **Actions → Turnip A650 EXP12 - Android KGSL verified → Run workflow**.
+2. Faça commit na branch principal. Como alternativa, usando Git em um PC: `git add . && git commit -m 'Turnip A650 EXP13' && git push`.
+3. Abra **Actions → Turnip A650 EXP13 - Android KGSL verified → Run workflow**.
 4. Em `mesa_ref`, use `main` para uma build do Mesa mais recente no momento da execução. Para comparar drivers, **reutilize o SHA mostrado no relatório da primeira build**.
 5. Selecione `baseline`; mantenha `vulkan_beta = false` inicialmente. Execute. O workflow primeiro roda testes locais e depois compila no servidor Linux.
-6. Baixe o artefato **Turnip-A650-EXP12-baseline**. Dentro dele estará o ZIP para importar no gerenciador de drivers do Eden, sem extrair o ZIP interno. Guarde o `.sha256` e o `.build.json`.
+6. Baixe o artefato **Turnip-A650-EXP13-baseline**. Dentro dele estará o ZIP para importar no gerenciador de drivers do Eden, sem extrair o ZIP interno. Guarde o `.sha256` e o `.build.json`.
 7. Faça o teste com um jogo, preserve os logs e compare na **mesma versão do Eden, com as mesmas opções de resolução, cache e configurações**.
 
 ### Testar o patch EXP02

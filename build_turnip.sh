@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Turnip A650 EXP12: reproducible Android/KGSL build and strict packaging.
+# Turnip A650 EXP13: audited Android/KGSL builder (Meson source path fixed).
 set -Eeuo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,15 +10,15 @@ ANDROID_API="${ANDROID_API:-33}"
 MESA_REPO="${MESA_REPO:-https://gitlab.freedesktop.org/mesa/mesa.git}"
 MESA_REF="${MESA_REF:-main}"
 PATCH_PROFILE="${PATCH_PROFILE:-baseline}"
-VARIANT_NAME="${VARIANT_NAME:-Turnip-A650-EXP12}"
+VARIANT_NAME="${VARIANT_NAME:-Turnip-A650-EXP13}"
 BUILD_VERSION="${BUILD_VERSION:-1}"
 VULKAN_BETA="${VULKAN_BETA:-false}"
 JOBS="${JOBS:-2}"
 NDK_ZIP_SHA256="${NDK_ZIP_SHA256:-}"
 
-log() { printf '\n[EXP12] %s\n' "$*"; }
-die() { printf '[EXP12] ERROR: %s\n' "$*" >&2; exit 1; }
-trap 'printf "[EXP12] FAILURE at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
+log() { printf '\n[EXP13] %s\n' "$*"; }
+die() { printf '[EXP13] ERROR: %s\n' "$*" >&2; exit 1; }
+trap 'printf "[EXP13] FAILURE at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
 validate_input() {
     [[ "$NDK_VERSION" =~ ^r[0-9]+[a-z]?$ ]] || die 'Invalid NDK_VERSION'
@@ -141,8 +141,10 @@ compile_driver() {
     local build="$WORKDIR/build-a650-$PATCH_PROFILE"
     INSTALL_DIR="$WORKDIR/install-a650-$PATCH_PROFILE"
     rm -rf "$build" "$INSTALL_DIR"
+    [[ -f "$MESA_DIR/meson.build" && -f "$MESA_DIR/VERSION" ]] || die "Mesa source directory invalid: $MESA_DIR"
     log 'Configuring Mesa with Android/KGSL, Freedreno Vulkan and shader cache'
-    meson setup "$build" \
+    # Explicit source directory is essential when invoked outside the Mesa tree.
+    meson setup "$build" "$MESA_DIR" \
         --cross-file "$CROSS_FILE" \
         --prefix "$INSTALL_DIR" \
         -Dbuildtype=release \
@@ -196,11 +198,14 @@ main() {
     validate_input
     require_deps
     mkdir -p "$WORKDIR" "$OUT_DIR"
-    prepare_ndk
+    # Resolve source and patch compatibility before downloading the ~688 MB NDK.
     fetch_source
     apply_selected_patches
+    prepare_ndk
     make_cross_file
     compile_driver
     package_driver
 }
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

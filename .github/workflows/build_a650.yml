@@ -1,4 +1,4 @@
-name: Turnip A650 EXP12 - Android KGSL verified
+name: Turnip A650 EXP13 - Android KGSL verified
 
 on:
   workflow_dispatch:
@@ -46,6 +46,8 @@ jobs:
           bash -n patches/common/apply_common.sh
           python3 -m compileall -q tools tests
           python3 -m unittest discover -s tests -v
+          test -f tools/validate_driver.py
+          test -f tools/package_driver.py
           test -s mesa-exp02.patch
 
   build:
@@ -78,7 +80,7 @@ jobs:
           VULKAN_BETA: ${{ inputs.vulkan_beta && 'true' || 'false' }}
           NDK_VERSION: ${{ inputs.ndk || 'r28c' }}
           ANDROID_API: '33'
-          VARIANT_NAME: Turnip-A650-EXP12
+          VARIANT_NAME: Turnip-A650-EXP13
           BUILD_VERSION: ${{ github.run_number }}
           JOBS: '2'
         run: bash build_turnip.sh
@@ -89,7 +91,7 @@ jobs:
           MESA_SHA: ${{ steps.build.outputs.mesa_sha }}
         run: |
           {
-            echo '### Turnip A650 EXP12: static build passed'
+            echo '### Turnip A650 EXP13: static build passed'
             echo "- ZIP: \`$DRIVER_NAME\`"
             echo "- Mesa source commit: \`$MESA_SHA\`"
             echo '- Hardware compatibility/FPS/Vulkan version: **not tested on device**'
@@ -98,7 +100,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Turnip-A650-EXP12-${{ inputs.profile || 'baseline' }}
+          name: Turnip-A650-EXP13-${{ inputs.profile || 'baseline' }}
           path: |
             dist/*.zip
             dist/*.sha256
