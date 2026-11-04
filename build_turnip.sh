@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Turnip A650 EXP13: audited Android/KGSL builder (Meson source path fixed).
+# Turnip A650 EXP14: compiler compatibility narrowing fixes with provenance.
 set -Eeuo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,15 +10,16 @@ ANDROID_API="${ANDROID_API:-33}"
 MESA_REPO="${MESA_REPO:-https://gitlab.freedesktop.org/mesa/mesa.git}"
 MESA_REF="${MESA_REF:-main}"
 PATCH_PROFILE="${PATCH_PROFILE:-baseline}"
-VARIANT_NAME="${VARIANT_NAME:-Turnip-A650-EXP13}"
+VARIANT_NAME="${VARIANT_NAME:-Turnip-A650-EXP14}"
 BUILD_VERSION="${BUILD_VERSION:-1}"
 VULKAN_BETA="${VULKAN_BETA:-false}"
+COMPAT_NARROWING="${COMPAT_NARROWING:-true}"
 JOBS="${JOBS:-2}"
 NDK_ZIP_SHA256="${NDK_ZIP_SHA256:-}"
 
-log() { printf '\n[EXP13] %s\n' "$*"; }
-die() { printf '[EXP13] ERROR: %s\n' "$*" >&2; exit 1; }
-trap 'printf "[EXP13] FAILURE at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
+log() { printf '\n[EXP14] %s\n' "$*"; }
+die() { printf '[EXP14] ERROR: %s\n' "$*" >&2; exit 1; }
+trap 'printf "[EXP14] FAILURE at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
 validate_input() {
     [[ "$NDK_VERSION" =~ ^r[0-9]+[a-z]?$ ]] || die 'Invalid NDK_VERSION'
@@ -27,6 +28,7 @@ validate_input() {
     [[ "$BUILD_VERSION" =~ ^[A-Za-z0-9._-]+$ ]] || die 'Invalid BUILD_VERSION'
     [[ "$VARIANT_NAME" =~ ^[A-Za-z0-9._-]+$ ]] || die 'VARIANT_NAME supports ASCII letters, digits, dot, dash, underscore'
     [[ "$VULKAN_BETA" == true || "$VULKAN_BETA" == false ]] || die 'VULKAN_BETA must be true or false'
+    [[ "$COMPAT_NARROWING" == true || "$COMPAT_NARROWING" == false ]] || die 'COMPAT_NARROWING must be true or false' 
     [[ "$MESA_REF" =~ ^[A-Za-z0-9._/-]+$ ]] && [[ "$MESA_REF" != -* ]] && [[ "$MESA_REF" != */../* ]] || die 'Invalid MESA_REF'
     case "$PATCH_PROFILE" in baseline|exp02) ;; *) die 'PATCH_PROFILE must be baseline or exp02' ;; esac
     case "$MESA_REPO" in
@@ -116,6 +118,21 @@ apply_selected_patches() {
     esac
 }
 
+apply_compiler_compat() {
+    COMPAT_REPORT="$WORKDIR/mesa-compatibility.json"
+    COMPAT_SHA='none'
+    if [[ "$COMPAT_NARROWING" == 'false' ]]; then
+        log 'Mesa compiler compatibility fixes explicitly disabled'
+        return
+    fi
+    log 'Checking upstream Mesa C/C++ integer narrowing at four known sites'
+    python3 "$ROOT/tools/fix_mesa_narrowing.py" \
+        --mesa-dir "$MESA_DIR" --report "$COMPAT_REPORT"
+    git -C "$MESA_DIR" diff --check || die 'Compatibility fixes introduced whitespace errors'
+    COMPAT_SHA="$(sha256sum "$COMPAT_REPORT" | cut -d' ' -f1)"
+    log "Compiler compatibility provenance SHA256: $COMPAT_SHA"
+}
+
 make_cross_file() {
     mkdir -p "$WORKDIR"
     CROSS_FILE="$WORKDIR/android-aarch64.ini"
@@ -161,7 +178,8 @@ compile_driver() {
         -Dshader-cache=enabled \
         -Degl=disabled
     log "Compiling using $JOBS jobs"
-    meson compile -C "$build" -j "$JOBS"
+    # Keep the full Ninja/Clang errors for automatic GitHub artifact upload.
+    meson compile -C "$build" -j "$JOBS" 2>&1 | tee "$WORKDIR/a650-$PATCH_PROFILE-compiler.log"
     meson install -C "$build"
     LIBRARY="$(find "$INSTALL_DIR" -type f -name libvulkan_freedreno.so -print -quit)"
     [[ -n "$LIBRARY" && -s "$LIBRARY" ]] || die 'Installed Turnip .so not found'
@@ -177,12 +195,15 @@ package_driver() {
         --driver-version "Mesa $MESA_VERSION-${MESA_SHA:0:10}" \
         --description "Turnip A650 KGSL / Mesa $MESA_VERSION / $PATCH_PROFILE / NDK $NDK_VERSION" \
         --package-version "$BUILD_VERSION" --min-api "$ANDROID_API" \
-        --author 'Turnip A650 EXP12 community build'
+        --author 'Turnip A650 EXP14 community build'
     python3 "$ROOT/tools/validate_driver.py" "$ZIP_PATH" --readelf "$NDK_BIN/llvm-readelf"
     SHA256="$(sha256sum "$ZIP_PATH" | cut -d' ' -f1)"
     printf '%s  %s\n' "$SHA256" "$(basename "$ZIP_PATH")" > "$ZIP_PATH.sha256"
-    export MESA_SHA MESA_VERSION MESA_REPO MESA_REF PATCH_PROFILE PATCH_SHA NDK_VERSION NDK_REVISION ANDROID_API VULKAN_BETA VARIANT_NAME BUILD_VERSION ZIP_PATH SHA256
+    export MESA_SHA MESA_VERSION MESA_REPO MESA_REF PATCH_PROFILE PATCH_SHA COMPAT_NARROWING COMPAT_SHA NDK_VERSION NDK_REVISION ANDROID_API VULKAN_BETA VARIANT_NAME BUILD_VERSION ZIP_PATH SHA256
     python3 "$ROOT/tools/build_report.py" --output "$ZIP_PATH.build.json"
+    if [[ -s "${COMPAT_REPORT:-}" ]]; then
+        cp "$COMPAT_REPORT" "$ZIP_PATH.compat.json"
+    fi
     log "Build finished: $ZIP_PATH"
     log "SHA256: $SHA256"
     if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
@@ -201,6 +222,7 @@ main() {
     # Resolve source and patch compatibility before downloading the ~688 MB NDK.
     fetch_source
     apply_selected_patches
+    apply_compiler_compat
     prepare_ndk
     make_cross_file
     compile_driver

@@ -1,4 +1,4 @@
-name: Turnip A650 EXP13 - Android KGSL verified
+name: Turnip A650 EXP14 - Android KGSL + compiler compatibility
 
 on:
   workflow_dispatch:
@@ -18,6 +18,10 @@ on:
         description: 'Enable beta Vulkan extensions (not a Vulkan 1.4 guarantee)'
         type: boolean
         default: false
+      compiler_fixes:
+        description: 'Explicit C/C++ narrowing fixes for Mesa (recommended)'
+        type: boolean
+        default: true
       ndk:
         description: 'NDK release'
         type: choice
@@ -46,6 +50,7 @@ jobs:
           bash -n patches/common/apply_common.sh
           python3 -m compileall -q tools tests
           python3 -m unittest discover -s tests -v
+          test -f tools/fix_mesa_narrowing.py
           test -f tools/validate_driver.py
           test -f tools/package_driver.py
           test -s mesa-exp02.patch
@@ -78,9 +83,10 @@ jobs:
           MESA_REF: ${{ inputs.mesa_ref || 'main' }}
           PATCH_PROFILE: ${{ inputs.profile || 'baseline' }}
           VULKAN_BETA: ${{ inputs.vulkan_beta && 'true' || 'false' }}
+          COMPAT_NARROWING: ${{ inputs.compiler_fixes == false && 'false' || 'true' }}
           NDK_VERSION: ${{ inputs.ndk || 'r28c' }}
           ANDROID_API: '33'
-          VARIANT_NAME: Turnip-A650-EXP13
+          VARIANT_NAME: Turnip-A650-EXP14
           BUILD_VERSION: ${{ github.run_number }}
           JOBS: '2'
         run: bash build_turnip.sh
@@ -91,7 +97,7 @@ jobs:
           MESA_SHA: ${{ steps.build.outputs.mesa_sha }}
         run: |
           {
-            echo '### Turnip A650 EXP13: static build passed'
+            echo '### Turnip A650 EXP14: static build passed'
             echo "- ZIP: \`$DRIVER_NAME\`"
             echo "- Mesa source commit: \`$MESA_SHA\`"
             echo '- Hardware compatibility/FPS/Vulkan version: **not tested on device**'
@@ -100,10 +106,22 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Turnip-A650-EXP13-${{ inputs.profile || 'baseline' }}
+          name: Turnip-A650-EXP14-${{ inputs.profile || 'baseline' }}
           path: |
             dist/*.zip
             dist/*.sha256
             dist/*.build.json
+            dist/*.compat.json
           if-no-files-found: error
           compression-level: 0
+
+      - name: Upload build diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Turnip-A650-EXP14-diagnostics-${{ github.run_id }}
+          path: |
+            .work/build-a650-*/meson-logs/meson-log.txt
+            .work/mesa-compatibility.json
+            .work/a650-*-compiler.log
+          if-no-files-found: warn
