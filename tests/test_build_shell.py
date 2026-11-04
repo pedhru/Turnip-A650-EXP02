@@ -28,6 +28,12 @@ class BuildShellTests(unittest.TestCase):
         return subprocess.run(['bash', '-c', code], env=env, text=True,
                               capture_output=True, check=check)
 
+    def test_ninja_collects_multiple_errors(self):
+        build=(ROOT/'build_turnip.sh').read_text()
+        self.assertIn('ninja -C "$build" -j "$JOBS" -k 0', build)
+        self.assertIn('set -Eeuo pipefail', build)
+        self.assertIn('| tee "$WORKDIR/a650-$PATCH_PROFILE-compiler.log"', build)
+
     def test_meson_receives_source_and_build_dir(self):
         result = self.run_shell(r'''
             source "$SCRIPT"
@@ -52,6 +58,10 @@ class BuildShellTests(unittest.TestCase):
                     ;;
                   *) return 35 ;;
                 esac
+            }
+            ninja() {
+                [[ "$1" == -C && "$2" == "$WORKDIR/build-a650-baseline" &&
+                   "$3" == -j && "$4" == 2 && "$5" == -k && "$6" == 0 ]]
             }
             compile_driver
             [[ -s "$LIBRARY" ]]

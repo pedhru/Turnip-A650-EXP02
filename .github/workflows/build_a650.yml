@@ -1,4 +1,4 @@
-name: Turnip A650 EXP15 - Android KGSL + compiler compatibility
+name: Turnip A650 EXP16 - Android KGSL + compiler compatibility
 
 on:
   workflow_dispatch:
@@ -86,7 +86,7 @@ jobs:
           COMPAT_NARROWING: ${{ inputs.compiler_fixes == false && 'false' || 'true' }}
           NDK_VERSION: ${{ inputs.ndk || 'r28c' }}
           ANDROID_API: '33'
-          VARIANT_NAME: Turnip-A650-EXP15
+          VARIANT_NAME: Turnip-A650-EXP16
           BUILD_VERSION: ${{ github.run_number }}
           JOBS: '2'
         run: bash build_turnip.sh
@@ -97,7 +97,7 @@ jobs:
           MESA_SHA: ${{ steps.build.outputs.mesa_sha }}
         run: |
           {
-            echo '### Turnip A650 EXP15: static build passed'
+            echo '### Turnip A650 EXP16: static build passed'
             echo "- ZIP: \`$DRIVER_NAME\`"
             echo "- Mesa source commit: \`$MESA_SHA\`"
             echo '- Hardware compatibility/FPS/Vulkan version: **not tested on device**'
@@ -106,7 +106,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Turnip-A650-EXP15-${{ inputs.profile || 'baseline' }}
+          name: Turnip-A650-EXP16-${{ inputs.profile || 'baseline' }}
           path: |
             dist/*.zip
             dist/*.sha256
@@ -119,7 +119,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: Turnip-A650-EXP15-diagnostics-${{ github.run_id }}
+          name: Turnip-A650-EXP16-diagnostics-${{ github.run_id }}
           path: |
             .work/build-a650-*/meson-logs/meson-log.txt
             .work/mesa-compatibility.json

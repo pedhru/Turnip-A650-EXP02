@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Targeted Mesa C/C++ narrowing compatibility for EXP13 and EXP14 build failures.
+"""Targeted Mesa C/C++ narrowing compatibility for EXP13-EXP15 build failures.
 
 Explicit C-style casts retain the implicit conversion behavior already used by C,
 while satisfying Clang C++17's list-initialization rule. This is a build fix, NOT a
@@ -15,7 +15,7 @@ import re
 from pathlib import Path
 
 # Exact source expressions taken from GitHub run 41748637122 (4 sites)
-# and 41755947921 (2 sites), Mesa 98a55f454dff645be1c88284634126a2c17fd416.
+# 41755947921 (2 sites) and 41759402735 (1 site), Mesa 98a55f454dff645be1c88284634126a2c17fd416.
 RULES = {
     "src/freedreno/vulkan/tu_cs.h": (
         (".size = entry.size / sizeof(uint32_t),", ".size = (uint16_t)(entry.size / sizeof(uint32_t)),"),
@@ -28,6 +28,13 @@ RULES = {
     "src/freedreno/vulkan/tu_acceleration_structure.cc": (
         (".output_bvh_offset = bvh_layout.bvh_offset,", ".output_bvh_offset = (uint32_t)bvh_layout.bvh_offset,"),
         (".bvh_offset = bvh_layout.bvh_offset,", ".bvh_offset = (uint32_t)bvh_layout.bvh_offset,"),
+    ),
+    "src/freedreno/vulkan/tu_buffer.cc": (
+        (
+            ".memoryTypeBits = (1 << device->physical_device->memory.non_lazy_type_count) - 1,",
+            ".memoryTypeBits = (device->physical_device->memory.non_lazy_type_count >= 32 ? UINT32_MAX : "
+            "((1u << device->physical_device->memory.non_lazy_type_count) - 1u)),",
+        ),
     ),
 }
 
