@@ -1,4 +1,4 @@
-"""Compiler compatibility regression tests for GitHub run 41748637122.
+"""Compiler compatibility regression tests for GitHub runs 41748637122 and 41755947921.
 
 Fixtures are intentionally tiny; these tests do NOT compile the full Mesa.
 """
@@ -34,11 +34,11 @@ class CompilerCompatTests(unittest.TestCase):
                                '--mesa-dir', str(self.mesa), *flags],
                               text=True, capture_output=True, check=check)
 
-    def test_fixes_exactly_four_sites_and_records_sha(self):
+    def test_fixes_exactly_six_sites_and_records_sha(self):
         report = Path(self.tmp.name) / 'report.json'
         result = self.run_fix('--report', str(report))
         data = json.loads(result.stdout)
-        self.assertEqual(data['fixed_sites'], 4)
+        self.assertEqual(data['fixed_sites'], 6)
         self.assertTrue(report.is_file())
         self.assertTrue(all(x['sha256_original'] != x['sha256_patched'] for x in data['files']))
         for rel, rules in RULES.items():
@@ -56,7 +56,7 @@ class CompilerCompatTests(unittest.TestCase):
 
     def test_check_only_leaves_files_unchanged(self):
         data = json.loads(self.run_fix('--check').stdout)
-        self.assertEqual(data['fixed_sites'], 4)
+        self.assertEqual(data['fixed_sites'], 6)
         self.assertEqual(self.original, {rel: (self.mesa/rel).read_text() for rel in RULES})
 
     def test_fail_closed_on_ambiguous_duplicate(self):
@@ -74,6 +74,17 @@ class CompilerCompatTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Mesa source file missing', result.stderr)
 
+    def test_fail_closed_on_unknown_upstream_expression(self):
+        rel = 'src/freedreno/vulkan/tu_acceleration_structure.cc'
+        p = self.mesa / rel
+        p.write_text(p.read_text().replace('.bvh_offset = bvh_layout.bvh_offset,',
+                                            '.bvh_offset = changed_by_upstream,'))
+        before = {r: (self.mesa / r).read_bytes() for r in RULES}
+        result = self.run_fix(check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Unrecognized Mesa source', result.stderr)
+        self.assertEqual(before, {r: (self.mesa / r).read_bytes() for r in RULES})
+
     def test_static_c_and_cpp_compilers(self):
         """Ensure the explicit conversion is legal in both C11 and C++17."""
         source = r'''
@@ -83,12 +94,18 @@ struct Entry { size_t size; };
 struct Meta { uint16_t size; };
 struct U32 { uint32_t w; uint32_t h; };
 struct Info { uint32_t gmem_align_w; uint32_t gmem_align_h; };
+struct BvhLayout { uint64_t bvh_offset; };
+struct BvhParams { uint32_t output_bvh_offset; uint32_t bvh_offset; };
 static inline size_t util_round_down_npot(size_t n, uint32_t a) { return n - n % a; }
 static struct Meta first(struct Entry entry) { return (struct Meta){.size = (uint16_t)(entry.size / sizeof(uint32_t))}; }
 static struct Meta second(uint32_t size) { return (struct Meta){.size = (uint16_t)size}; }
 static struct U32 third(size_t max_extra_size, const struct Info *dev_info) {
   return (struct U32){(uint32_t)util_round_down_npot(max_extra_size, dev_info->gmem_align_w),
     (uint32_t)util_round_down_npot(max_extra_size, dev_info->gmem_align_h)};
+}
+static struct BvhParams fourth(struct BvhLayout bvh_layout) {
+  return (struct BvhParams){.output_bvh_offset = (uint32_t)bvh_layout.bvh_offset,
+                             .bvh_offset = (uint32_t)bvh_layout.bvh_offset};
 }
 '''
         # In C++, C-style designated struct literal is allowed by gnu++17 extensions;

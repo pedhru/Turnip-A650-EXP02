@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Targeted Mesa C/C++ narrowing compatibility for the logged 2026-11-04 Turnip failure.
+"""Targeted Mesa C/C++ narrowing compatibility for EXP13 and EXP14 build failures.
 
 Explicit C-style casts retain the implicit conversion behavior already used by C,
 while satisfying Clang C++17's list-initialization rule. This is a build fix, NOT a
@@ -14,8 +14,8 @@ import json
 import re
 from pathlib import Path
 
-# Exact source expressions taken from the failed GitHub build at Mesa
-# 98a55f454dff645be1c88284634126a2c17fd416.
+# Exact source expressions taken from GitHub run 41748637122 (4 sites)
+# and 41755947921 (2 sites), Mesa 98a55f454dff645be1c88284634126a2c17fd416.
 RULES = {
     "src/freedreno/vulkan/tu_cs.h": (
         (".size = entry.size / sizeof(uint32_t),", ".size = (uint16_t)(entry.size / sizeof(uint32_t)),"),
@@ -24,6 +24,10 @@ RULES = {
     "src/freedreno/fdl/freedreno_lrz_layout.h": (
         ("return {util_round_down_npot(max_extra_size, dev_info->gmem_align_w),", "return {(uint32_t)util_round_down_npot(max_extra_size, dev_info->gmem_align_w),"),
         ("util_round_down_npot(max_extra_size, dev_info->gmem_align_h)};", "(uint32_t)util_round_down_npot(max_extra_size, dev_info->gmem_align_h)};"),
+    ),
+    "src/freedreno/vulkan/tu_acceleration_structure.cc": (
+        (".output_bvh_offset = bvh_layout.bvh_offset,", ".output_bvh_offset = (uint32_t)bvh_layout.bvh_offset,"),
+        (".bvh_offset = bvh_layout.bvh_offset,", ".bvh_offset = (uint32_t)bvh_layout.bvh_offset,"),
     ),
 }
 
@@ -54,6 +58,8 @@ def prepare_patch(mesa_dir: Path):
                 raise ValueError(f'Ambiguous Mesa source: {relative}: {original!r} occurs {occurrences} times')
             if occurrences and replacement in content:
                 raise ValueError(f'Ambiguous partial upstream change: {relative}: {original!r}')
+            if not occurrences and replacement not in content:
+                raise ValueError(f'Unrecognized Mesa source: {relative}: neither original nor expected fix found: {original!r}')
             content = re.sub(pattern, lambda _: replacement, content)
             counts.append(occurrences)
         patches.append((file, old, content.encode('utf-8')))

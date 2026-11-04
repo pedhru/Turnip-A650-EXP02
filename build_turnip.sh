@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Turnip A650 EXP14: compiler compatibility narrowing fixes with provenance.
+# Turnip A650 EXP15: compiler compatibility narrowing fixes with provenance.
 set -Eeuo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,16 +10,16 @@ ANDROID_API="${ANDROID_API:-33}"
 MESA_REPO="${MESA_REPO:-https://gitlab.freedesktop.org/mesa/mesa.git}"
 MESA_REF="${MESA_REF:-main}"
 PATCH_PROFILE="${PATCH_PROFILE:-baseline}"
-VARIANT_NAME="${VARIANT_NAME:-Turnip-A650-EXP14}"
+VARIANT_NAME="${VARIANT_NAME:-Turnip-A650-EXP15}"
 BUILD_VERSION="${BUILD_VERSION:-1}"
 VULKAN_BETA="${VULKAN_BETA:-false}"
 COMPAT_NARROWING="${COMPAT_NARROWING:-true}"
 JOBS="${JOBS:-2}"
 NDK_ZIP_SHA256="${NDK_ZIP_SHA256:-}"
 
-log() { printf '\n[EXP14] %s\n' "$*"; }
-die() { printf '[EXP14] ERROR: %s\n' "$*" >&2; exit 1; }
-trap 'printf "[EXP14] FAILURE at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
+log() { printf '\n[EXP15] %s\n' "$*"; }
+die() { printf '[EXP15] ERROR: %s\n' "$*" >&2; exit 1; }
+trap 'printf "[EXP15] FAILURE at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
 validate_input() {
     [[ "$NDK_VERSION" =~ ^r[0-9]+[a-z]?$ ]] || die 'Invalid NDK_VERSION'
@@ -125,7 +125,7 @@ apply_compiler_compat() {
         log 'Mesa compiler compatibility fixes explicitly disabled'
         return
     fi
-    log 'Checking upstream Mesa C/C++ integer narrowing at four known sites'
+    log 'Checking upstream Mesa C/C++ integer narrowing at six known sites'
     python3 "$ROOT/tools/fix_mesa_narrowing.py" \
         --mesa-dir "$MESA_DIR" --report "$COMPAT_REPORT"
     git -C "$MESA_DIR" diff --check || die 'Compatibility fixes introduced whitespace errors'
@@ -195,7 +195,7 @@ package_driver() {
         --driver-version "Mesa $MESA_VERSION-${MESA_SHA:0:10}" \
         --description "Turnip A650 KGSL / Mesa $MESA_VERSION / $PATCH_PROFILE / NDK $NDK_VERSION" \
         --package-version "$BUILD_VERSION" --min-api "$ANDROID_API" \
-        --author 'Turnip A650 EXP14 community build'
+        --author 'Turnip A650 EXP15 community build'
     python3 "$ROOT/tools/validate_driver.py" "$ZIP_PATH" --readelf "$NDK_BIN/llvm-readelf"
     SHA256="$(sha256sum "$ZIP_PATH" | cut -d' ' -f1)"
     printf '%s  %s\n' "$SHA256" "$(basename "$ZIP_PATH")" > "$ZIP_PATH.sha256"
