@@ -26,16 +26,33 @@ if [[ ! -d "$mesa_dir" ]]; then
  tar -xJf "$work_dir/mesa.tar.xz" -C "$work_dir"
 fi
 [[ -f "$mesa_dir/VERSION" ]] || { echo 'Incomplete Mesa source' >&2; exit 1; }
-if [[ -z "${ANDROID_NDK_HOME:-}" ]]; then
- ANDROID_NDK_HOME="$work_dir/android-ndk-r27c"
- if [[ ! -f "$ANDROID_NDK_HOME/source.properties" ]]; then
-  verified_download 'https://dl.google.com/android/repository/android-ndk-r27c-linux.zip' "$work_dir/ndk.zip" "$ndk_hash"
-  unzip -q "$work_dir/ndk.zip" -d "$work_dir"
+# Use the pinned official r27c NDK, not GitHub runner's inherited ANDROID_NDK_HOME.
+# An inherited NDK path caused run 41867951519 to abort with Wrong NDK revision.
+if [[ -n "${ANDROID_NDK_HOME:-}" ]]; then
+ echo "INFO: Ignoring inherited ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
+fi
+ANDROID_NDK_HOME="$work_dir/android-ndk-r27c"
+export ANDROID_NDK_HOME
+EXPECTED_NDK_REVISION='27.2.12479018'
+ndk_revision() {
+ sed -n 's/^Pkg\.Revision[[:space:]]*=[[:space:]]*//p' "$1" | tr -d '\r' | head -n 1
+}
+if [[ -f "$ANDROID_NDK_HOME/source.properties" ]]; then
+ found="$(ndk_revision "$ANDROID_NDK_HOME/source.properties")"
+ if [[ "$found" != "$EXPECTED_NDK_REVISION" ]]; then
+  echo "INFO: Discarding incompatible local NDK revision: $found"
+  rm -rf -- "$ANDROID_NDK_HOME"
  fi
 fi
-export ANDROID_NDK_HOME
-[[ -f "$ANDROID_NDK_HOME/source.properties" ]] || { echo 'Incomplete NDK' >&2; exit 1; }
-grep -q 'Pkg.Revision = 27.2.12479018' "$ANDROID_NDK_HOME/source.properties" || { echo 'Wrong NDK revision' >&2; exit 1; }
+if [[ ! -f "$ANDROID_NDK_HOME/source.properties" ]]; then
+ verified_download 'https://dl.google.com/android/repository/android-ndk-r27c-linux.zip' "$work_dir/ndk.zip" "$ndk_hash"
+ unzip -q -o "$work_dir/ndk.zip" -d "$work_dir"
+fi
+[[ -f "$ANDROID_NDK_HOME/source.properties" ]] || { echo 'Incomplete NDK: source.properties absent' >&2; exit 1; }
+found="$(ndk_revision "$ANDROID_NDK_HOME/source.properties")"
+echo "Using Android NDK revision: $found (expected $EXPECTED_NDK_REVISION)"
+[[ "$found" == "$EXPECTED_NDK_REVISION" ]] || { echo 'Wrong NDK revision after pinned download' >&2; exit 1; }
+[[ -x "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang++" ]] || { echo 'Missing NDK compiler' >&2; exit 1; }
 version="$(cat "$mesa_dir/VERSION")"
 [[ "$version" == '26.2.6' ]] || { echo "Unexpected Mesa version: $version" >&2; exit 1; }
 # Mesa 26.2.6 includes upstream Turnip/A650 hang workarounds and bug fixes.

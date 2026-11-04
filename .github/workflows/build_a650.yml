@@ -41,6 +41,7 @@ jobs:
         env:
           WORK_DIR: ${{ runner.temp }}/turnip-exp19
         run: |
+          unset ANDROID_NDK_HOME ANDROID_NDK_ROOT NDK_HOME
           bash build_turnip.sh
           python3 tests/test_source.py "$WORK_DIR/mesa-26.2.6"
       - name: Upload driver and logs
