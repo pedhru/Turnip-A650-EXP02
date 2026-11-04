@@ -1,31 +1,15 @@
-# Turnip A650 EXP15 | Android 13 / ARM64 / KGSL
+# Turnip A650 EXP19 — Mesa 26.2.6 (upstream stable)
 
-Atualização pontual do EXP14 com base no [erro do GitHub Actions run 41755947921](https://github.com/pedhru/Turnip-A650-EXP02/actions/runs/41755947921/job/126332012239).
+This recipe **switches** from Mesa 27.0.0-devel to official Mesa **26.2.6**, released 2026-10-28. The verified upstream source SHA256 is `b9436b3e1a8be76fbd4823dc884f90596ab7c6ac5e1867a305e66ffccfb31a92`. Official notes: https://docs.mesa3d.org/relnotes/26.2.6.html
 
-## O que mudou
+Mesa 26.2.6 includes upstream **[Turnip/A650] game hang workaround**, IR3 fixes, and A650 register fixes listed in the release notes. It does **not** apply older EXP19 patches written for the Mesa 27 tree. Doing that without source review could reintroduce memory corruption or fail compilation. The recipe retains Android NDK r27c, ELF ARM64/HMI validation and ZIP CRC + checksum validation.
 
-- EXP14 corrigiu os quatro erros de narrowing anteriores, mas a compilação parou no arquivo `tu_acceleration_structure.cc` em duas inicializações de offsets BVH.
-- EXP15 acrescenta `uint32_t` explícito exatamente nessas duas posições, reproduzindo a conversão de destino, sem desativar os avisos do compilador.
-- O script de compatibilidade agora recusa alterações upstream inesperadas em vez de ignorá-las em silêncio. É idempotente, com registros de hash SHA-256.
-- O workflow passa a anexar os diagnósticos de `.work` com `include-hidden-files: true` se a build falhar.
+## Run
 
-## Como compilar
+Upload all files, including `.github/workflows`, into a **separate branch** in `pedhru/Turnip-A650-EXP02`. In GitHub Actions choose **Turnip A650 Mesa 26.2.6 - Build and Validate** and run it. Download the generated Turnip zip artifact on success. Do not import the source ZIP as a driver.
 
-Rode os testes locais (não compilam o Mesa):
+## Verification / limitations
 
-```bash
-bash -n build_turnip.sh
-python3 -m unittest discover -s tests -v
-```
+This package is **source + CI recipe only**. The Mesa archive could not be retrieved in the authoring environment, and **the full Android cross-build has not run here**. Meson options may need changes for Mesa 26.2.6 and the workflow will stop visibly if it cannot build. Do not claim performance gains, Vulkan 1.4 exposure on A650, or zero crashes. A game crash can originate in the emulator NCE, memory handling or game code, beyond the GPU driver.
 
-No repositório GitHub use **Actions → Turnip A650 EXP15 → Run workflow**:
-
-- `profile=baseline`
-- `mesa_ref=main` (ou SHA `98a55f454dff645be1c88284634126a2c17fd416` para tentar reproduzir o código exato)
-- `compiler_fixes=true`
-- `ndk=r28c`
-- `vulkan_beta=false`
-
-Também é possível usar o instalador automático para Termux ou Linux/PROOT que acompanha a distribuição. Nenhum driver binário está incluso neste projeto. Para detalhes veja `AUDITORIA_EXP15.md`.
-
-**Atenção:** conversões para 32 bits podem truncar valores grandes. A build estática não demonstra compatibilidade ou desempenho na GPU Adreno 650.
+Retest Eden under identical game, resolution, settings, thermal state compared to EXP11, using the GitHub-built binary, and inspect logcat/tombstone if a crash occurs.

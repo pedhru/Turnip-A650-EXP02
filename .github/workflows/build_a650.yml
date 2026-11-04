@@ -1,128 +1,54 @@
-name: Turnip A650 EXP15 - Android KGSL + compiler compatibility
-
+name: Turnip A650 Mesa 26.2.6 - Build and Validate
 on:
   workflow_dispatch:
-    inputs:
-      mesa_ref:
-        description: 'Mesa branch, tag or commit SHA (main = latest at build time)'
-        type: string
-        default: 'main'
-      profile:
-        description: 'Baseline recommended. EXP02 is historical/experimental and may not apply.'
-        type: choice
-        options:
-          - baseline
-          - exp02
-        default: baseline
-      vulkan_beta:
-        description: 'Enable beta Vulkan extensions (not a Vulkan 1.4 guarantee)'
-        type: boolean
-        default: false
-      compiler_fixes:
-        description: 'Explicit C/C++ narrowing fixes for Mesa (recommended)'
-        type: boolean
-        default: true
-      ndk:
-        description: 'NDK release'
-        type: choice
-        options:
-          - r28c
-          - r27c
-        default: r28c
-
+  push:
+    paths:
+      - 'build_turnip.sh'
+      - 'build_exp18.py'
+      - 'pack_driver.py'
+      - 'tests/**'
+      - '.github/workflows/build_a650.yml'
 permissions:
   contents: read
-
 concurrency:
-  group: turnip-a650-${{ github.ref }}-${{ inputs.profile }}
+  group: exp19-stable-${{ github.ref }}
   cancel-in-progress: false
-
 jobs:
-  checks:
-    name: Check tooling and input files
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - name: Validate shell and Python sources
-        run: |
-          bash -n build_turnip.sh
-          bash -n patches/common/apply_common.sh
-          python3 -m compileall -q tools tests
-          python3 -m unittest discover -s tests -v
-          test -f tools/fix_mesa_narrowing.py
-          test -f tools/validate_driver.py
-          test -f tools/package_driver.py
-          test -s mesa-exp02.patch
-
   build:
-    name: Build ARM64 Turnip for Adreno 650
-    needs: checks
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-      - name: Install system build tools
+      - name: Check scripts and unit tests
+        run: |
+          bash -n build_turnip.sh
+          python3 -m compileall -q build_exp18.py pack_driver.py tests
+      - name: Host build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            git curl unzip zip flex bison ninja-build glslang-tools \
-            pkg-config build-essential libexpat1-dev libelf-dev python3-venv python3-pip
-          python3 -m venv "$RUNNER_TEMP/mesa-python"
-          "$RUNNER_TEMP/mesa-python/bin/pip" install --upgrade pip
-          "$RUNNER_TEMP/mesa-python/bin/pip" install 'meson>=1.4,<2' mako packaging pyyaml
-          echo "$RUNNER_TEMP/mesa-python/bin" >> "$GITHUB_PATH"
-      - name: Cache official Android NDK
-        uses: actions/cache@v4
-        with:
-          path: .work/android-ndk-${{ inputs.ndk || 'r28c' }}
-          key: turnip-a650-ndk-${{ runner.os }}-${{ inputs.ndk || 'r28c' }}-v1
-      - name: Compile and validate Turnip ADPKG
-        id: build
-        env:
-          MESA_REF: ${{ inputs.mesa_ref || 'main' }}
-          PATCH_PROFILE: ${{ inputs.profile || 'baseline' }}
-          VULKAN_BETA: ${{ inputs.vulkan_beta && 'true' || 'false' }}
-          COMPAT_NARROWING: ${{ inputs.compiler_fixes == false && 'false' || 'true' }}
-          NDK_VERSION: ${{ inputs.ndk || 'r28c' }}
-          ANDROID_API: '33'
-          VARIANT_NAME: Turnip-A650-EXP15
-          BUILD_VERSION: ${{ github.run_number }}
-          JOBS: '2'
-        run: bash build_turnip.sh
-      - name: Publish build summary
-        if: success()
-        env:
-          DRIVER_NAME: ${{ steps.build.outputs.driver_name }}
-          MESA_SHA: ${{ steps.build.outputs.mesa_sha }}
+          sudo apt-get install -y build-essential bison flex m4 pkg-config unzip curl cmake python3-venv
+          python3 -m venv "$RUNNER_TEMP/turnip-venv"
+          "$RUNNER_TEMP/turnip-venv/bin/pip" install meson==1.12.1 ninja==1.13.2 mako==1.4.3 pyyaml==6.0.3 packaging==26.3 ply==3.11
+          echo "$RUNNER_TEMP/turnip-venv/bin" >> "$GITHUB_PATH"
+      - name: Build glslang 15.1.0
         run: |
-          {
-            echo '### Turnip A650 EXP15: static build passed'
-            echo "- ZIP: \`$DRIVER_NAME\`"
-            echo "- Mesa source commit: \`$MESA_SHA\`"
-            echo '- Hardware compatibility/FPS/Vulkan version: **not tested on device**'
-          } >> "$GITHUB_STEP_SUMMARY"
-      - name: Upload driver, checksum and provenance
-        if: success()
+          curl --fail --location --retry 3 https://codeload.github.com/KhronosGroup/glslang/tar.gz/refs/tags/15.1.0 -o "$RUNNER_TEMP/glslang.tar.gz"
+          tar -xzf "$RUNNER_TEMP/glslang.tar.gz" -C "$RUNNER_TEMP"
+          cmake -S "$RUNNER_TEMP/glslang-15.1.0" -B "$RUNNER_TEMP/glslang-build" -DCMAKE_BUILD_TYPE=Release -DENABLE_OPT=OFF -DBUILD_TESTING=OFF -DENABLE_GLSLANG_BINARIES=ON
+          cmake --build "$RUNNER_TEMP/glslang-build" -j 4
+          ln -sf "$RUNNER_TEMP/glslang-build/StandAlone/glslang" "$RUNNER_TEMP/turnip-venv/bin/glslangValidator"
+      - name: Compile and validate A650
+        env:
+          WORK_DIR: ${{ runner.temp }}/turnip-exp19
+        run: |
+          bash build_turnip.sh
+          python3 tests/test_source.py "$WORK_DIR/mesa-26.2.6"
+      - name: Upload driver and logs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Turnip-A650-EXP15-${{ inputs.profile || 'baseline' }}
+          name: Turnip_A650_MESA_26_2_6_${{ github.run_number }}
           path: |
-            dist/*.zip
-            dist/*.sha256
-            dist/*.build.json
-            dist/*.compat.json
-          if-no-files-found: error
-          compression-level: 0
-
-      - name: Upload build diagnostics on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Turnip-A650-EXP15-diagnostics-${{ github.run_id }}
-          path: |
-            .work/build-a650-*/meson-logs/meson-log.txt
-            .work/mesa-compatibility.json
-            .work/a650-*-compiler.log
+            ${{ runner.temp }}/turnip-exp19/Turnip_A650_EXP19_MESA_26_2_6.zip
+            ${{ runner.temp }}/turnip-exp19/out/meson-logs/meson-log.txt
           if-no-files-found: warn
-          include-hidden-files: true

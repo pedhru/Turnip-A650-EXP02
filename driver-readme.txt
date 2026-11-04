@@ -1,0 +1,1 @@
+A650 EXP19 Mesa 26.2.6: official upstream stable release, Android ARM64 KGSL API30+. Includes Mesa 26.2.6 upstream A650 hang fix, not legacy Mesa27 EXP19 custom patches. No forced Vulkan feature version. Device validation required: GitHub build passing does not establish crash-free operation.

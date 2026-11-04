@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "name": "Mesa Turnip A650 26.2.6 STABLE",
+  "description": "Official upstream Mesa 26.2.6 with Turnip/A650 hang fixes; Android ARM64 KGSL cross-build with validated packaging. GPU testing required.",
+  "author": "Mesa developers; build configuration prepared with ChatGPT",
+  "packageVersion": "EXP19-MESA26.2.6",
+  "vendor": "Mesa",
+  "driverVersion": "26.2.6",
+  "minApi": 30,
+  "libraryName": "libvulkan_freedreno.so"
+}
